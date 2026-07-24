@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>쇼이치 시뮬레이터 자체 테스트</title>
+  <style>
+    #game { position: fixed; left: -2000px; top: 0; width: 1280px; height: 720px; border: 0; }
+  </style>
+</head>
+<body>
+  <output id="result">RUNNING</output>
+  <iframe id="game" src="index.html"></iframe>
+  <script>
+    const output = document.querySelector("#result");
+    const frame = document.querySelector("#game");
+
+    frame.addEventListener("load", () => {
+      setTimeout(() => {
+        try {
+          const api = frame.contentWindow.__shoichiGame;
+          const assertions = [];
+          const assert = (condition, name) => assertions.push({ condition, name });
+
+          assert(Boolean(api), "개발 API 로드");
+          assert(api.state.dummies.length === 1, "초기 더미 생성");
+          assert(!frame.contentDocument.querySelector('.skill[data-key="A"]'), "하단 A 버튼 제거");
+          assert(!frame.contentDocument.querySelector('.skill[data-key="T"]'), "하단 T 버튼 제거");
+          assert(Boolean(frame.contentDocument.querySelector('.skill[data-key="F"]')), "F 블링크 슬롯 생성");
+          assert(frame.contentDocument.querySelector('.skill[data-key="F"] img').getAttribute("src").includes("tactical-blink-f.png"), "F 블링크 아이콘 연결");
+          const cooldownResetMode = frame.contentDocument.querySelector("#cooldownResetMode");
+          assert(api.state.cooldownResetMode && cooldownResetMode.getAttribute("aria-pressed") === "true", "쿨타임 초기화 모드 기본 ON");
+          cooldownResetMode.click();
+          assert(!api.state.cooldownResetMode, "쿨타임 초기화 모드 OFF 전환");
+          assert(frame.contentDocument.querySelector(".project-label").textContent.includes("A 자동 공격"), "좌측 상단 A 키 안내");
+          assert(frame.contentDocument.querySelector(".project-label").textContent.includes("T 연습 초기화"), "좌측 상단 T 키 안내");
+
+          const gameCanvas = frame.contentDocument.querySelector("#gameCanvas");
+          const followStart = { x: api.state.width - 180, y: api.state.height - 130 };
+          const followEnd = { x: api.state.width - 100, y: api.state.height - 80 };
+          gameCanvas.dispatchEvent(new PointerEvent("pointerdown", { button: 2, pointerId: 77, clientX: followStart.x, clientY: followStart.y, bubbles: true }));
+          gameCanvas.dispatchEvent(new PointerEvent("pointermove", { buttons: 2, pointerId: 77, clientX: followEnd.x, clientY: followEnd.y, bubbles: true }));
+          assert(api.state.rightMouseHeld, "우클릭 유지 상태");
+          assert(Boolean(api.state.player.moveTarget) && Math.hypot(api.state.player.moveTarget.x - followEnd.x, api.state.player.moveTarget.y - followEnd.y) < 1, "우클릭 유지 중 마우스 추적 이동");
+          gameCanvas.dispatchEvent(new PointerEvent("pointerup", { button: 2, pointerId: 77, clientX: followEnd.x, clientY: followEnd.y, bubbles: true }));
+          assert(!api.state.rightMouseHeld, "우클릭 해제 시 추적 종료");
+          api.resetPractice();
+
+          const initialHp = api.state.dummies[0].hp;
+          const initialDamage = api.state.dummies[0].damageTaken;
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("Q");
+          assert(api.state.player.actionLockUntil > api.state.now, "Q 선·후딜 이동 잠금");
+          api.flushPendingSkill();
+          assert(api.state.dummies[0].damageTaken > initialDamage, "Q 피해 기록");
+          assert(api.state.dummies[0].hp === initialHp, "더미 무한 체력 유지");
+          assert(api.state.player.passiveStacks === 1, "Q 적중 패시브 중첩");
+          assert(api.state.player.qEmpoweredUntil > api.state.now, "Q 강화 상태 획득");
+          api.updateSkillHud();
+          const qSlot = frame.contentDocument.querySelector('.skill[data-key="Q"]');
+          assert(qSlot.querySelector(".q-empowered-art").getAttribute("src").includes("shoichi-q-empowered.png"), "강화 Q 전용 아이콘 연결");
+          assert(qSlot.querySelector(".q-empower-timer rect").style.strokeDasharray !== "", "강화 Q 흰색 제한시간 테두리");
+          api.resetCooldowns();
+          api.executeAction("Q");
+          api.flushPendingSkill();
+          const empoweredQDagger = api.state.pendingDaggers[0];
+          assert(Boolean(empoweredQDagger), "강화 Q 단검 생성");
+          assert(Math.hypot(empoweredQDagger.x - api.state.player.x, empoweredQDagger.y - api.state.player.y) >= 159, "강화 Q 단검 생성 거리 확장");
+          assert(api.state.player.qEmpoweredUntil === 0, "강화 Q 사용 후 일반 Q 복귀");
+
+          api.resetPractice();
+          const normalQCancelTarget = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("Q");
+          api.setMouse(normalQCancelTarget.x, normalQCancelTarget.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill?.key === "Q", "일반 Q 선딜은 W로 취소 불가");
+
+          api.resetPractice();
+          api.state.player.qEmpoweredUntil = api.state.now + 10;
+          const empoweredQCancelTarget = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("Q");
+          api.setMouse(empoweredQCancelTarget.x, empoweredQCancelTarget.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill === null && api.state.player.actionLockUntil <= api.state.now, "강화 Q 선딜 W 즉시 취소");
+          assert(api.state.cooldowns.Q === 0, "강화 Q 선딜 취소 시 Q 미발동");
+
+          api.resetPractice();
+          api.state.player.qEmpoweredUntil = api.state.now + 10;
+          const empoweredQRecoveryTarget = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("Q");
+          api.flushPendingSkill(true);
+          api.setMouse(empoweredQRecoveryTarget.x, empoweredQRecoveryTarget.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill === null && api.state.player.actionLockUntil <= api.state.now, "강화 Q 후딜 W 즉시 취소");
+          assert(api.state.cooldowns.Q > 0, "강화 Q 후딜 취소 시 Q 발동 유지");
+
+          api.resetPractice();
+          const eWindupCancelTarget = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("E");
+          api.setMouse(eWindupCancelTarget.x, eWindupCancelTarget.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill === null && api.state.player.actionLockUntil <= api.state.now, "E 선딜 W 즉시 취소");
+          assert(api.state.cooldowns.E === 0, "E 선딜 취소 시 E 미발동");
+
+          api.resetPractice();
+          const eRecoveryCancelTarget = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("E");
+          api.flushPendingSkill(true);
+          api.setMouse(eRecoveryCancelTarget.x, eRecoveryCancelTarget.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill === null && api.state.player.actionLockUntil <= api.state.now, "E 후딜 W 즉시 취소");
+          assert(api.state.cooldowns.E > 0, "E 후딜 취소 시 E 발동 유지");
+
+          api.resetPractice();
+          const target = api.state.dummies[0];
+          api.setMouse(target.x, target.y);
+          const beforeBackstepX = api.state.player.x;
+          const beforeBackstepY = api.state.player.y;
+          api.executeAction("E");
+          assert(api.state.player.actionLockUntil > api.state.now, "E 선·후딜 이동 잠금");
+          api.flushPendingSkill();
+          assert(target.markUntil > api.state.now, "E 협상 표식");
+          assert(api.state.pendingDaggers.length === 1, "E 단검 생성 유예시간");
+          assert(api.state.daggers.length === 0, "E 단검 착지 전 회수 불가");
+          api.finishPendingDaggers();
+          assert(api.state.daggers.length === 1, "E 대상 뒤 단검 생성");
+          assert(api.state.player.x !== beforeBackstepX, "E 후퇴 이동");
+          assert(Math.hypot(api.state.player.x - beforeBackstepX, api.state.player.y - beforeBackstepY) <= 47, "E 후퇴 거리 단축");
+
+          const dagger = api.state.daggers[0];
+          api.setMouse(dagger.x, dagger.y);
+          api.executeAction("W");
+          api.flushPendingSkill();
+          assert(api.state.daggers.length === 0, "W 단검 회수");
+          assert(api.state.cooldowns.W === 0, "W 단검 회수 쿨다운 초기화");
+
+          api.resetPractice();
+          const dashTarget = api.state.dummies[0];
+          dashTarget.x = api.state.player.x + 200;
+          dashTarget.y = api.state.player.y;
+          const pathDaggerX = (api.state.player.x + dashTarget.x) / 2;
+          const pathDaggerY = (api.state.player.y + dashTarget.y) / 2;
+          api.spawnDagger(pathDaggerX, pathDaggerY);
+          api.finishPendingDaggers();
+          api.setMouse(dashTarget.x, dashTarget.y);
+          api.executeAction("W");
+          api.flushPendingSkill();
+          assert(api.state.daggers.length === 0, "W 이동 경로 단검 회수");
+          assert(api.state.cooldowns.W === 0, "W 경로 단검 회수 쿨다운 초기화");
+
+          api.resetPractice();
+          const reservedDagger = api.spawnDagger(api.state.player.x + 120, api.state.player.y);
+          api.setMouse(reservedDagger.x, reservedDagger.y);
+          api.executeAction("W");
+          assert(api.state.player.pendingSkill === null && api.state.player.actionLockUntil <= api.state.now, "W 선딜·후딜 없이 즉시 발동");
+          api.flushPendingSkill();
+          assert(Math.hypot(api.state.player.x - reservedDagger.x, api.state.player.y - reservedDagger.y) < 1, "W 예정 위치 이동");
+          api.finishPendingDaggers();
+          assert(api.state.daggers.length === 0, "선입력 위치에서 착지 단검 즉시 회수");
+          assert(api.state.cooldowns.W === 0, "선입력 단검 회수 W 쿨다운 초기화");
+
+          api.resetPractice();
+          const longRangeDagger = api.spawnDagger(api.state.player.x + 380, api.state.player.y);
+          api.setMouse(longRangeDagger.x, longRangeDagger.y);
+          api.executeAction("W");
+          assert(Math.hypot(api.state.player.x - longRangeDagger.x, api.state.player.y - longRangeDagger.y) < 1, "확장된 W 사거리 즉시 이동");
+
+          api.resetPractice();
+          api.state.dummies[0].x = api.state.player.x + 340;
+          api.state.dummies[0].y = api.state.player.y;
+          api.spawnDagger(api.state.player.x + 58, api.state.player.y);
+          api.finishPendingDaggers();
+          assert(api.state.daggers.length === 0, "파란 회수 원 접촉 시 즉시 단검 회수");
+          assert(api.state.projectiles.some((projectile) => projectile.visual === "whiteDagger"), "패시브 흰색 단검 투사체");
+          assert(api.state.projectiles.some((projectile) => projectile.targetId === api.state.dummies[0].id), "확장된 패시브 단검 적 탐색 범위");
+
+          api.resetPractice();
+          const dTarget = api.state.dummies[0];
+          dTarget.x = api.state.player.x + 160;
+          dTarget.y = api.state.player.y;
+          api.setMouse(dTarget.x, dTarget.y);
+          const dStartX = api.state.player.x;
+          const dTargetDamage = dTarget.damageTaken;
+          api.executeAction("D");
+          assert(api.state.player.dRecastUntil > api.state.now, "D 1타 1.5초 은신");
+          assert(api.state.cooldowns.D === 0, "D 1타 중 재사용 가능");
+          api.executeAction("D");
+          assert(dTarget.damageTaken > dTargetDamage, "D 2타 피해 적용");
+          assert(api.state.player.x > dTarget.x && dStartX < dTarget.x, "D 2타 현재 위치 반대편 이동");
+          assert(api.state.player.dRecastUntil === 0, "D 2타 은신 종료");
+          assert(api.state.cooldowns.D > 0, "D 2타 쿨다운 적용");
+
+          api.resetPractice();
+          const blinkStart = { x: api.state.player.x, y: api.state.player.y };
+          api.setMouse(blinkStart.x + 400, blinkStart.y);
+          api.executeAction("F");
+          const blinkDistance = Math.hypot(api.state.player.x - blinkStart.x, api.state.player.y - blinkStart.y);
+          assert(blinkDistance >= 229 && blinkDistance <= 231, "F 블링크 최대 3m 환산 거리");
+          assert(api.state.cooldowns.F === 45, "F 블링크 45초 쿨다운");
+          assert(api.state.player.moveTarget === null && api.state.player.targetId === null, "F 블링크 기존 이동·공격 명령 해제");
+          assert(api.state.effects.some((effect) => effect.color === "#77dcff"), "F 블링크 도착 연출");
+
+          api.resetPractice();
+          api.executeAction("A");
+          assert(api.state.player.targetId === api.state.dummies[0].id, "A 자동 대상 지정");
+          api.state.player.moveTarget = { x: api.state.player.x + 100, y: api.state.player.y };
+          api.executeAction("S");
+          assert(api.state.player.targetId === null, "S 기본 공격 대상 해제");
+          assert(api.state.player.moveTarget === null, "S 이동 명령 중단");
+
+          api.resetPractice();
+          api.executeAction("R");
+          api.flushPendingSkill();
+          assert(api.state.pendingDaggers.length === 4, "R 단검 생성 유예시간");
+          api.finishPendingDaggers();
+          assert(api.state.daggers.length === 4, "R 단검 네 개 생성");
+          assert(api.state.cooldowns.R > 0, "R 쿨다운 적용");
+
+          api.resetCooldowns();
+          assert(Object.values(api.state.cooldowns).every((value) => value === 0), "쿨다운 초기화");
+
+          Object.keys(api.state.cooldowns).forEach((key) => { api.state.cooldowns[key] = 10; });
+          cooldownResetMode.click();
+          assert(api.state.cooldownResetMode, "쿨타임 초기화 모드 ON 전환");
+          assert(Object.values(api.state.cooldowns).every((value) => value === 0), "ON 전환 시 모든 기존 쿨다운 초기화");
+          assert(cooldownResetMode.classList.contains("active") && cooldownResetMode.textContent.includes("ON"), "ON 상태 UI 표시");
+
+          api.resetPractice();
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("Q");
+          api.flushPendingSkill();
+          assert(api.state.cooldowns.Q === 0, "ON 상태 Q 쿨다운 0");
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("W");
+          assert(api.state.cooldowns.W === 0, "ON 상태 W 쿨다운 0");
+          api.executeAction("E");
+          api.flushPendingSkill();
+          assert(api.state.cooldowns.E === 0, "ON 상태 E 쿨다운 0");
+          api.executeAction("R");
+          api.flushPendingSkill();
+          assert(api.state.cooldowns.R === 0, "ON 상태 R 쿨다운 0");
+          api.setMouse(api.state.player.x + 200, api.state.player.y);
+          api.executeAction("F");
+          assert(api.state.cooldowns.F === 0, "ON 상태 F 쿨다운 0");
+          api.resetPractice();
+          api.setMouse(api.state.dummies[0].x, api.state.dummies[0].y);
+          api.executeAction("D");
+          api.executeAction("D");
+          assert(api.state.cooldowns.D === 0, "ON 상태 D 2타 쿨다운 0");
+
+          const failed = assertions.filter((item) => !item.condition);
+          output.textContent = failed.length
+            ? `FAIL: ${failed.map((item) => item.name).join(", ")}`
+            : `PASS: ${assertions.length} checks`;
+          document.body.dataset.status = failed.length ? "fail" : "pass";
+        } catch (error) {
+          output.textContent = `ERROR: ${error.stack || error.message}`;
+          document.body.dataset.status = "error";
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>
