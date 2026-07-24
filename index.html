@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>쇼이치 시뮬레이터</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --panel: rgba(7, 8, 11, 0.94);
+      --panel-head: #182332;
+      --panel-line: #30353d;
+      --blue: #27a8ff;
+      --blue-dim: #174b72;
+      --red: #dc263e;
+      --red-bright: #ff4a5e;
+      --gold: #dda72f;
+      --text: #e5e8ed;
+      --muted: #858c98;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      color: var(--text);
+      background: #07080a;
+      font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+      user-select: none;
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .simulator {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      min-height: 560px;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse at 50% 56%, rgba(24, 31, 45, 0.42), transparent 37%),
+        linear-gradient(#0c0e12, #06070a 82%);
+      isolation: isolate;
+    }
+
+    .arena {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .game-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+
+    .grid-plane {
+      position: absolute;
+      left: -18%;
+      top: -42%;
+      z-index: -2;
+      width: 136%;
+      height: 170%;
+      background-image:
+        linear-gradient(rgba(37, 63, 99, 0.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37, 63, 99, 0.25) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: radial-gradient(ellipse at 50% 54%, #000 20%, rgba(0,0,0,.88) 55%, transparent 88%);
+      transform: perspective(760px) rotateX(56deg) translateY(9%);
+      transform-origin: center center;
+    }
+
+    .grid-glow {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,.45), transparent 20% 77%, rgba(0,0,0,.62)),
+        linear-gradient(rgba(0,0,0,.2), transparent 18% 74%, rgba(0,0,0,.74));
+    }
+
+    .project-label {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      color: rgba(210, 219, 232, 0.38);
+      font-size: 10px;
+      letter-spacing: .17em;
+    }
+
+    .project-label span {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .unit {
+      position: absolute;
+      z-index: 4;
+      width: 86px;
+      height: 92px;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 12px 8px rgba(0,0,0,.7));
+    }
+
+    .shoichi {
+      left: 54%;
+      top: 56%;
+    }
+
+    .shoichi-sprite {
+      position: absolute;
+      left: 21px;
+      top: 24px;
+      width: 43px;
+      height: 46px;
+      transform: rotate(-8deg);
+    }
+
+    .shoichi-sprite .head {
+      position: absolute;
+      left: 15px;
+      top: 0;
+      width: 17px;
+      height: 17px;
+      border: 2px solid #d8c0a3;
+      border-radius: 47% 53% 50% 45%;
+      background: #353237;
+      box-shadow: -5px -2px 0 -2px #c4af91;
+    }
+
+    .shoichi-sprite .body {
+      position: absolute;
+      left: 11px;
+      top: 14px;
+      width: 25px;
+      height: 25px;
+      border: 2px solid #7e7467;
+      border-radius: 45% 55% 52% 48%;
+      background: linear-gradient(135deg, #a1947f, #514a42);
+    }
+
+    .shoichi-sprite .body::before,
+    .shoichi-sprite .body::after {
+      position: absolute;
+      top: 18px;
+      width: 9px;
+      height: 18px;
+      border-radius: 5px;
+      background: #5e554c;
+      content: "";
+    }
+
+    .shoichi-sprite .body::before { left: 1px; transform: rotate(18deg); }
+    .shoichi-sprite .body::after { right: 0; transform: rotate(-18deg); }
+
+    .briefcase {
+      position: absolute;
+      right: -4px;
+      top: 25px;
+      width: 19px;
+      height: 25px;
+      border: 2px solid #a07845;
+      border-radius: 3px;
+      background: linear-gradient(145deg, #7b552d, #372617);
+      transform: rotate(-18deg);
+    }
+
+    .briefcase::before {
+      position: absolute;
+      left: 4px;
+      top: -7px;
+      width: 7px;
+      height: 5px;
+      border: 2px solid #9c7445;
+      border-bottom: 0;
+      border-radius: 3px 3px 0 0;
+      content: "";
+    }
+
+    .unit-ring {
+      position: absolute;
+      left: 50%;
+      top: 63%;
+      z-index: -1;
+      width: 84px;
+      height: 42px;
+      border: 1px solid rgba(76, 105, 148, .18);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .passive-stack {
+      position: absolute;
+      left: 50%;
+      top: -1px;
+      display: flex;
+      gap: 3px;
+      padding: 3px 5px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      background: rgba(3,4,6,.72);
+      transform: translateX(-50%);
+    }
+
+    .passive-stack i {
+      width: 7px;
+      height: 7px;
+      border: 1px solid #722a34;
+      border-radius: 50%;
+      background: #241218;
+    }
+
+    .passive-stack i.active {
+      background: var(--red);
+      box-shadow: 0 0 6px var(--red-bright);
+    }
+
+    .dummy {
+      left: 50.5%;
+      top: 49%;
+      width: 67px;
+      height: 78px;
+    }
+
+    .dummy .hp {
+      position: absolute;
+      top: 1px;
+      left: 50%;
+      width: 55px;
+      height: 5px;
+      overflow: hidden;
+      border: 1px solid #16171a;
+      border-radius: 2px;
+      background: #24272d;
+      transform: translateX(-50%);
+    }
+
+    .dummy .hp::after {
+      display: block;
+      width: 83%;
+      height: 100%;
+      background: #9a3a43;
+      content: "";
+    }
+
+    .dummy-face {
+      position: absolute;
+      left: 9px;
+      top: 17px;
+      width: 48px;
+      height: 42px;
+      border: 2px solid #9d252e;
+      border-radius: 48% 52% 46% 54%;
+      background: linear-gradient(145deg, #d4484e, #9b252d);
+      box-shadow: inset 0 -8px 0 rgba(86, 10, 18, .15);
+    }
+
+    .dummy-face::before,
+    .dummy-face::after {
+      position: absolute;
+      top: 15px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.2);
+      content: "";
+    }
+
+    .dummy-face::before { left: 12px; }
+    .dummy-face::after { right: 12px; }
+
+    .dummy-mouth {
+      position: absolute;
+      left: 24px;
+      top: 45px;
+      width: 15px;
+      height: 3px;
+      border-radius: 3px;
+      background: #5f151b;
+    }
+
+    .negotiation-mark {
+      position: absolute;
+      left: 50%;
+      top: 5px;
+      color: #ff3950;
+      text-shadow: 0 0 8px #ff203d;
+      transform: translateX(-50%);
+      font-size: 13px;
+      opacity: .82;
+    }
+
+    .console {
+      position: absolute;
+      top: 8px;
+      right: 9px;
+      z-index: 20;
+      width: 246px;
+      display: grid;
+      gap: 6px;
+      padding: 7px;
+      border: 1px solid #25282e;
+      border-radius: 8px;
+      background: rgba(5, 6, 8, .96);
+      box-shadow: 0 6px 26px rgba(0,0,0,.62);
+      font-size: 11px;
+    }
+
+    .option-panel {
+      overflow: hidden;
+      border: 1px solid #2e3239;
+      border-radius: 5px;
+      background: #08090b;
+    }
+
+    .option-title {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 9px;
+      border: 0;
+      background: linear-gradient(#1d2938, #141c27);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: left;
+    }
+
+    .option-title::after {
+      color: #8e9aab;
+      content: "▾";
+      font-size: 9px;
+    }
+
+    .option-panel.collapsed .option-title::after { content: "▸"; }
+    .option-panel.collapsed .option-body { display: none; }
+
+    .option-body {
+      display: grid;
+      gap: 7px;
+      padding: 9px;
+    }
+
+    .control-label {
+      color: #b6bcc6;
+      text-align: center;
+    }
+
+    .stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .stepper button,
+    .small-btn {
+      min-width: 28px;
+      height: 25px;
+      border: 1px solid #434851;
+      border-radius: 4px;
+      background: linear-gradient(#272a30, #16181c);
+      cursor: pointer;
+    }
+
+    .stepper button:hover,
+    .small-btn:hover,
+    .wide-btn:hover { border-color: #69717f; background: #292d34; }
+
+    .value {
+      min-width: 42px;
+      color: #42aaff;
+      font-size: 13px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .reduction {
+      color: #e5a322;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .wide-btn {
+      width: 100%;
+      min-height: 27px;
+      border: 1px solid #444850;
+      border-radius: 4px;
+      background: linear-gradient(#292c31, #1b1d21);
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .wide-btn.primary {
+      border-color: #7f2935;
+      background: linear-gradient(#6f202c, #391117);
+    }
+
+    .wide-btn.active {
+      border-color: #2788c7;
+      background: #173650;
+      color: #8dd2ff;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: #b9bec7;
+      line-height: 1.1;
+    }
+
+    .check-row input { accent-color: #1aa5ff; }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+
+    .hint {
+      color: #747b87;
+      font-size: 9px;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    .speed-row,
+    .guide-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .speed-row button,
+    .guide-row button {
+      height: 24px;
+      border: 1px solid #363b43;
+      border-radius: 4px;
+      background: #15171b;
+      color: #bec3cc;
+      cursor: pointer;
+      font-size: 10px;
+    }
+
+    .speed-row button.active {
+      border-color: #278fcd;
+      background: #154161;
+      color: white;
+    }
+
+    .combat-log {
+      position: absolute;
+      left: 9px;
+      bottom: 68px;
+      z-index: 15;
+      width: 225px;
+      min-height: 92px;
+      max-height: 132px;
+      overflow: hidden;
+      padding: 8px 9px;
+      border: 1px solid rgba(37, 40, 47, .45);
+      border-radius: 5px;
+      color: #686e78;
+      background: rgba(3, 4, 6, .66);
+      font: 10px/1.55 Consolas, monospace;
+    }
+
+    .combat-log p { margin: 0; }
+    .combat-log .system { color: #8d929b; }
+    .combat-log .action { color: #a7505a; }
+
+    .skillbar {
+      position: absolute;
+      left: 50%;
+      bottom: 13px;
+      z-index: 18;
+      display: flex;
+      align-items: end;
+      gap: 5px;
+      transform: translateX(-50%);
+    }
+
+    .skill[data-key="Q"] { order: 1; }
+    .skill[data-key="W"] { order: 2; }
+    .skill[data-key="E"] { order: 3; }
+    .skill[data-key="R"] { order: 4; }
+    .skill[data-key="D"] { order: 5; margin-left: 5px; }
+    .skill[data-key="F"] { order: 6; }
+
+    .skill {
+      position: relative;
+      display: grid;
+      width: 55px;
+      height: 55px;
+      place-items: center;
+      overflow: hidden;
+      border: 2px solid #1ca9ff;
+      border-radius: 5px;
+      background:
+        radial-gradient(circle at 65% 35%, rgba(241,48,75,.58), transparent 27%),
+        linear-gradient(145deg, #781326, #16070d 68%);
+      box-shadow: 0 0 0 2px #0b2536, inset 0 0 16px rgba(255,30,65,.24);
+      cursor: pointer;
+    }
+
+    .skill:hover { filter: brightness(1.2); }
+    .skill.pressed { animation: skill-press 220ms ease; }
+    .skill.empowered {
+      border-color: #ff6576;
+      box-shadow: 0 0 0 2px #5d1522, 0 0 15px rgba(255, 45, 73, .75), inset 0 0 18px rgba(255, 65, 88, .38);
+    }
+
+    .skill-icon {
+      position: relative;
+      z-index: 1;
+      color: #f5d4d8;
+      text-shadow: 0 0 8px #ff2346;
+      font-size: 25px;
+      font-weight: 900;
+      transform: skew(-13deg);
+    }
+
+    .skill-art {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .skill-art.q-empowered-art { opacity: 0; }
+    .skill.empowered .q-normal-art { opacity: 0; }
+    .skill.empowered .q-empowered-art { opacity: 1; }
+
+    .q-empower-timer {
+      position: absolute;
+      inset: -2px;
+      z-index: 4;
+      display: none;
+      width: calc(100% + 4px);
+      height: calc(100% + 4px);
+      overflow: visible;
+      pointer-events: none;
+      transform: rotate(-90deg);
+      filter: drop-shadow(0 0 3px rgba(255, 255, 255, .9));
+    }
+
+    .skill.empowered .q-empower-timer { display: block; }
+
+    .q-empower-timer rect {
+      fill: none;
+      stroke: #fff;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .skill-key {
+      position: absolute;
+      top: 2px;
+      left: 3px;
+      z-index: 2;
+      color: white;
+      font-size: 10px;
+      font-weight: 900;
+      text-shadow: 0 1px 2px #000;
+    }
+
+    .skill.basic {
+      border-color: #b99d55;
+      background: linear-gradient(145deg, #d2ad42, #54411a);
+      box-shadow: 0 0 0 2px #3d351f;
+    }
+
+    .skill.utility {
+      border-color: #189ddc;
+      background: radial-gradient(circle, #1675a3, #06141e 70%);
+    }
+
+    .skill.weapon {
+      border-color: #d9ad38;
+      background: #322706;
+      box-shadow: 0 0 0 2px #4b3a0c, inset 0 0 16px rgba(255, 210, 64, .28);
+    }
+
+    .skill.weapon.recast {
+      border-color: #fff2a0;
+      box-shadow: 0 0 0 2px #8a6717, 0 0 16px rgba(255, 226, 86, .9), inset 0 0 18px rgba(255, 235, 150, .32);
+      animation: weapon-ready 600ms ease-in-out infinite alternate;
+    }
+
+    .cooldown-mask {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      display: none;
+      place-items: center;
+      background: rgba(0,0,0,.72);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .skill.cooling .cooldown-mask { display: grid; }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 84px;
+      z-index: 30;
+      padding: 7px 13px;
+      border: 1px solid #343941;
+      border-radius: 4px;
+      background: rgba(6,7,10,.92);
+      box-shadow: 0 5px 18px rgba(0,0,0,.5);
+      color: #cbd0d8;
+      font-size: 11px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 8px);
+      transition: 150ms ease;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .fan-note {
+      position: absolute;
+      right: 10px;
+      bottom: 7px;
+      color: rgba(145, 151, 162, .32);
+      font-size: 8px;
+    }
+
+    .skill.tactical {
+      border-color: #37c5ff;
+      background: linear-gradient(145deg, #0a4c82, #061725 72%);
+      box-shadow: 0 0 0 2px #082638, inset 0 0 18px rgba(40, 186, 255, .35);
+    }
+
+    @keyframes skill-press {
+      50% { transform: translateY(2px) scale(.94); filter: brightness(1.65); }
+    }
+
+    @keyframes weapon-ready {
+      from { filter: brightness(1); }
+      to { filter: brightness(1.3); }
+    }
+
+    @media (max-width: 900px) {
+      .console { width: 212px; font-size: 10px; }
+      .skill { width: 48px; height: 48px; }
+      .skill-icon { font-size: 21px; }
+      .combat-log { width: 185px; }
+    }
+
+    @media (max-width: 640px) {
+      .console { top: 5px; right: 5px; width: 184px; }
+      .option-body { padding: 6px; }
+      .combat-log { left: 5px; bottom: 62px; width: 150px; max-height: 78px; font-size: 8px; }
+      .skillbar { gap: 3px; }
+      .skill { width: 42px; height: 42px; }
+      .skill-icon { font-size: 18px; }
+      .fan-note, .project-label { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="simulator">
+    <section class="arena" id="arena" aria-label="쇼이치 연습장">
+      <div class="grid-plane" aria-hidden="true"></div>
+      <div class="grid-glow" aria-hidden="true"></div>
+      <canvas class="game-canvas" id="gameCanvas" aria-label="플레이 가능한 쇼이치 연습장"></canvas>
+      <div class="project-label">
+        <span>마우스 · 우클릭 유지 이동 · 적 우클릭 공격</span>
+        <span>스킬 · Q W E R · D 망토와 단검 · F 블링크 · A 자동 공격 · S 정지 · T 연습 초기화</span>
+      </div>
+    </section>
+
+    <aside class="console" aria-label="연습장 옵션">
+      <section class="option-panel">
+        <button class="option-title" type="button">쿨타임 옵션</button>
+        <div class="option-body">
+          <span class="control-label">쿨타임 감소</span>
+          <div class="stepper">
+            <button type="button" data-step="cooldown" data-delta="-1">−</button>
+            <strong class="value" id="cooldownValue">40</strong>
+            <button type="button" data-step="cooldown" data-delta="1">＋</button>
+          </div>
+          <div class="reduction">감소율: <span id="reductionValue">28</span>%</div>
+          <button class="wide-btn active" id="cooldownResetMode" type="button" aria-pressed="true">쿨타임 초기화 모드: ON</button>
+        </div>
+      </section>
+
+      <section class="option-panel">
+        <button class="option-title" type="button">능력치 옵션</button>
+        <div class="option-body">
+          <span class="control-label">공격속도</span>
+          <div class="stepper">
+            <button type="button" data-step="attackSpeed" data-delta="-0.01">−</button>
+            <strong class="value" id="attackSpeedValue">1.08</strong>
+            <button type="button" data-step="attackSpeed" data-delta="0.01">＋</button>
+          </div>
+          <label class="check-row"><input type="checkbox"> 비색단검 적용 (+0.21)</label>
+        </div>
+      </section>
+
+      <section class="option-panel">
+        <button class="option-title" type="button">더미 옵션</button>
+        <div class="option-body">
+          <div class="button-row">
+            <button class="wide-btn primary" id="spawnDummy" type="button">더미 생성</button>
+            <button class="wide-btn" id="removeDummy" type="button">더미 삭제</button>
+          </div>
+          <span class="hint">버튼 클릭 후 목표 지점을 클릭해 배치</span>
+          <label class="check-row"><input id="movingDummy" type="checkbox"> 움직이는 더미</label>
+          <span class="hint">더미가 설정한 방향으로 이동합니다</span>
+        </div>
+      </section>
+
+      <section class="option-panel">
+        <button class="option-title" type="button">콤보 가이드</button>
+        <div class="option-body">
+          <div class="button-row">
+            <button class="wide-btn" id="recordCombo" type="button">● 녹화</button>
+            <button class="wide-btn" id="playCombo" type="button">▶ 재생</button>
+          </div>
+          <span class="control-label">배속</span>
+          <div class="speed-row">
+            <button class="active" type="button">1x</button>
+            <button type="button">0.5x</button>
+            <button type="button">0.3x</button>
+          </div>
+          <button class="wide-btn" id="shareCombo" type="button">▣ 공유 코드</button>
+          <span class="hint">녹화 후 코드를 공유 · 코드를 재생</span>
+          <div class="guide-row">
+            <button type="button">7타이밍</button>
+            <button type="button">9타이밍</button>
+            <button type="button">12타이밍</button>
+          </div>
+          <button class="wide-btn" id="settings" type="button">⚙ 설정</button>
+        </div>
+      </section>
+    </aside>
+
+    <div class="combat-log" id="combatLog" aria-live="polite">
+      <p class="system">비약 대상 없음</p>
+      <p class="system">비약 대상 없음</p>
+      <p class="system">비약 대상 없음</p>
+      <p class="action">비약 - 단검 대상</p>
+    </div>
+
+    <nav class="skillbar" aria-label="스킬 단축키">
+      <button class="skill" data-key="Q" title="Q · 표리" type="button"><span class="skill-key">Q</span><img class="skill-art q-normal-art" src="assets/skills/shoichi-q.png" alt=""><img class="skill-art q-empowered-art" src="assets/skills/shoichi-q-empowered.png" alt=""><svg class="q-empower-timer" viewBox="0 0 59 59" aria-hidden="true"><rect x="3" y="3" width="53" height="53" rx="6" pathLength="100"></rect></svg><span class="cooldown-mask">0</span></button>
+      <button class="skill" data-key="W" title="W · 비약" type="button"><span class="skill-key">W</span><img class="skill-art" src="assets/skills/shoichi-w.png" alt=""><span class="cooldown-mask">0</span></button>
+      <button class="skill" data-key="E" title="E · 협상" type="button"><span class="skill-key">E</span><img class="skill-art" src="assets/skills/shoichi-e.png" alt=""><span class="cooldown-mask">0</span></button>
+      <button class="skill" data-key="R" title="R · 궁극기" type="button"><span class="skill-key">R</span><img class="skill-art" src="assets/skills/shoichi-r.png" alt=""><span class="cooldown-mask">0</span></button>
+      <button class="skill weapon" data-key="D" title="D · 망토와 단검" type="button"><span class="skill-key">D</span><img class="skill-art" src="assets/skills/weapon-dagger-d.png" alt=""><span class="cooldown-mask">0</span></button>
+      <button class="skill tactical" data-key="F" title="F · 블링크" type="button"><span class="skill-key">F</span><img class="skill-art" src="assets/skills/tactical-blink-f.png" alt=""><span class="cooldown-mask">0</span></button>
+    </nav>
+
+    <div class="toast" id="toast" role="status"></div>
+    <span class="fan-note">비공식 팬 프로젝트 UI 초안 · 원작 리소스 미사용</span>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
